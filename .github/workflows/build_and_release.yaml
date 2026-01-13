@@ -4,17 +4,17 @@ on:
   push:
     branches:
       - dev
+      - main
   pull_request:
     branches:
       - main
-    types: [closed] # Opcional: Garante que só rode se o PR for mergeado (se usar trigger de PR direto)
+    types: [closed]
 
 permissions:
   contents: write
 
 jobs:
   build:
-    # Só roda se for um push no dev/main OU se for um PR mergeado na main
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
 
     name: Build for ${{ matrix.os }}
@@ -25,53 +25,84 @@ jobs:
         os: [ubuntu-latest, windows-latest]
 
     steps:
-      # 1. Checkout do código
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Configuração do Java (Necessário para ferramentas Android/Flutter internas)
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
           java-version: "17"
 
-      # 3. Configuração do Flutter
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: "stable"
           cache: true
 
-      # 4. Instalar dependências do Linux (Apenas se estiver no Ubuntu)
-      # sqflite precisa do libsqlite3-dev
-      # window_manager e flutter linux precisam de gtk-3 e headers C++
+      # --- LINUX DEPENDENCIES ---
+      # Adicionado libfuse2 necessário para rodar AppImages no Ubuntu mais novo
       - name: Install Linux Dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsqlite3-dev
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsqlite3-dev libfuse2
 
-      # 5. Instalar dependências do projeto (Pub Get)
       - name: Install Project Dependencies
         run: flutter pub get
 
-      # 6. Rodar Build Runner (CRUCIAL para Riverpod/Freezed/etc)
       - name: Run Build Runner
         run: dart run build_runner build --delete-conflicting-outputs
 
       # ---------------------------------------------------
-      # BUILD LINUX
+      # BUILD LINUX (APPIMAGE)
       # ---------------------------------------------------
       - name: Build Linux
         if: matrix.os == 'ubuntu-latest'
         run: flutter build linux --release
 
-      - name: Compress Linux Build
+      - name: Create AppImage
         if: matrix.os == 'ubuntu-latest'
         run: |
-          cd build/linux/x64/release/bundle
-          tar -czvf ../../../../../urna-linux-x64.tar.gz .
+          # 1. Baixar ferramentas do LinuxDeploy
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage
+
+          # 2. Preparar Estrutura do AppDir
+          # O Flutter espera que as pastas 'lib' e 'data' estejam junto do executável
+          mkdir -p AppDir/usr/bin
+          cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
+
+          # 3. Criar arquivo .desktop temporário (metadados do app)
+          cat > urna.desktop <<EOF
+          [Desktop Entry]
+          Name=Urna Eletrônica
+          Exec=urna
+          Icon=urna
+          Type=Application
+          Categories=Utility;
+          EOF
+
+          # 4. Configurar Ícone
+          # Tenta usar o ícone padrão do projeto linux, senão baixa um genérico do Flutter
+          if [ -f "linux/runner/resources/application_icon.png" ]; then
+            cp linux/runner/resources/application_icon.png urna.png
+          else
+            wget -q -O urna.png https://storage.googleapis.com/cms-storage-bucket/0dbfcc7a59cd1cf16282.png
+          fi
+
+          # 5. Gerar o AppImage
+          # --executable aponta para o binário dentro do AppDir
+          # O linuxdeploy vai buscar as libs necessárias automaticamente
+          ./linuxdeploy-x86_64.AppImage \
+            --appdir AppDir \
+            --executable AppDir/usr/bin/urna \
+            --desktop-file urna.desktop \
+            --icon urna.png \
+            --output appimage
+
+          # Renomear para o nome esperado no upload
+          mv Urna_Eletrônica*.AppImage urna-linux-x64.AppImage
 
       # ---------------------------------------------------
       # BUILD WINDOWS
@@ -88,8 +119,6 @@ jobs:
       # ---------------------------------------------------
       # RELEASE / UPLOAD
       # ---------------------------------------------------
-
-      # Define a Tag baseada no Branch
       - name: Set Release Tag
         id: tag
         shell: bash
@@ -113,5 +142,6 @@ jobs:
           tag: ${{ steps.tag.outputs.release_tag }}
           name: ${{ steps.tag.outputs.release_name }}
           prerelease: ${{ steps.tag.outputs.is_prerelease }}
-          artifacts: "urna-linux-x64.tar.gz,urna-windows-x64.zip"
+          # Alterado aqui para pegar o .AppImage em vez do .tar.gz
+          artifacts: "urna-linux-x64.AppImage,urna-windows-x64.zip"
           token: ${{ secrets.GITHUB_TOKEN }}
