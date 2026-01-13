@@ -1,0 +1,117 @@
+name: Build & Release
+
+on:
+  push:
+    branches:
+      - dev
+  pull_request:
+    branches:
+      - main
+    types: [closed] # Opcional: Garante que só rode se o PR for mergeado (se usar trigger de PR direto)
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Só roda se for um push no dev/main OU se for um PR mergeado na main
+    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+
+    name: Build for ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    steps:
+      # 1. Checkout do código
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Configuração do Java (Necessário para ferramentas Android/Flutter internas)
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      # 3. Configuração do Flutter
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          cache: true
+
+      # 4. Instalar dependências do Linux (Apenas se estiver no Ubuntu)
+      # sqflite precisa do libsqlite3-dev
+      # window_manager e flutter linux precisam de gtk-3 e headers C++
+      - name: Install Linux Dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsqlite3-dev
+
+      # 5. Instalar dependências do projeto (Pub Get)
+      - name: Install Project Dependencies
+        run: flutter pub get
+
+      # 6. Rodar Build Runner (CRUCIAL para Riverpod/Freezed/etc)
+      - name: Run Build Runner
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      # ---------------------------------------------------
+      # BUILD LINUX
+      # ---------------------------------------------------
+      - name: Build Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: flutter build linux --release
+
+      - name: Compress Linux Build
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          cd build/linux/x64/release/bundle
+          tar -czvf ../../../../../urna-linux-x64.tar.gz .
+
+      # ---------------------------------------------------
+      # BUILD WINDOWS
+      # ---------------------------------------------------
+      - name: Build Windows
+        if: matrix.os == 'windows-latest'
+        run: flutter build windows --release
+
+      - name: Compress Windows Build
+        if: matrix.os == 'windows-latest'
+        run: |
+          Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath urna-windows-x64.zip
+
+      # ---------------------------------------------------
+      # RELEASE / UPLOAD
+      # ---------------------------------------------------
+
+      # Define a Tag baseada no Branch
+      - name: Set Release Tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+            echo "release_tag=v0.1.0-${{ github.run_number }}" >> $GITHUB_OUTPUT
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+            echo "release_name=Release v0.1.0 (Build ${{ github.run_number }})" >> $GITHUB_OUTPUT
+          else
+            echo "release_tag=dev-build-${{ github.run_number }}" >> $GITHUB_OUTPUT
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+            echo "release_name=Development Build ${{ github.run_number }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Publish Release
+        uses: ncipollo/release-action@v1
+        with:
+          allowUpdates: true
+          removeArtifacts: true
+          replacesArtifacts: true
+          tag: ${{ steps.tag.outputs.release_tag }}
+          name: ${{ steps.tag.outputs.release_name }}
+          prerelease: ${{ steps.tag.outputs.is_prerelease }}
+          artifacts: "urna-linux-x64.tar.gz,urna-windows-x64.zip"
+          token: ${{ secrets.GITHUB_TOKEN }}
