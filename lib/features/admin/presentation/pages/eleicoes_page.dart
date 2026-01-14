@@ -55,14 +55,16 @@ class EleicoesPage extends ConsumerWidget {
                         final item = eleicoes[index];
                         return EleicaoCard(
                           item: item,
-                          onTap: () {
+                          onTap: () async {
                             if (item.eleicao.isAberta) {
-                              context.push('/votacao', extra: item.eleicao).then((
-                                _,
-                              ) {
-                                // Invalida para atualizar status se a votação for finalizada
+                              final result = await context.push<bool>(
+                                '/votacao',
+                                extra: item.eleicao,
+                              );
+
+                              if (result == true || result == null) {
                                 ref.invalidate(eleicoesListProvider);
-                              });
+                              }
                             } else {
                               context.push(
                                 '/eleicoes/detalhes',

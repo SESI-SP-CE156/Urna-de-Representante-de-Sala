@@ -1,47 +1,38 @@
-import 'package:flutter/material.dart';
-import 'package:urna/core/data/repositories/eleicao_repository.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:riverpod_annotation/riverpod_annotation.dart';
 import 'package:urna/core/entities/candidato.dart';
-import 'package:urna/core/entities/eleicao.dart';
+import 'package:urna/features/admin/data/providers/eleicao_providers.dart';
 
-class VotacaoController extends ChangeNotifier {
-  final EleicaoRepository _repository;
+part 'votacao_controller.g.dart';
 
-  // Dados da Eleição atual
-  late Eleicao eleicao;
-  List<Candidato> candidatos = [];
+// 1. Provider para Listar Candidatos daquela Eleição Específica
+// Usamos .family para passar o ID da eleição como parâmetro
+@riverpod
+class VotacaoCandidatos extends _$VotacaoCandidatos {
+  @override
+  Future<List<Candidato>> build(int eleicaoId) async {
+    final repository = ref.watch(eleicaoRepositoryProvider);
+    return await repository.listarCandidatosDaEleicao(eleicaoId);
+  }
+}
 
-  bool isLoading = false;
+// 2. Provider para Ações (Votar e Finalizar)
+@Riverpod(keepAlive: true)
+class VotacaoActions extends _$VotacaoActions {
+  @override
+  void build() {}
 
-  VotacaoController(this._repository);
-
-  // Inicializa a tela carregando os candidatos
-  Future<void> iniciarVotacao(Eleicao eleicaoSelecionada) async {
-    eleicao = eleicaoSelecionada;
-    isLoading = true;
-    notifyListeners();
-
-    try {
-      candidatos = await _repository.listarCandidatosDaEleicao(eleicao.id!);
-    } catch (e) {
-      debugPrint("Erro ao carregar candidatos: $e");
-    } finally {
-      isLoading = false;
-      notifyListeners();
-    }
+  Future<void> votar(int eleicaoId, int candidatoId) async {
+    final repository = ref.read(eleicaoRepositoryProvider);
+    await repository.registrarVoto(eleicaoId, candidatoId);
+    // Não precisamos invalidar a lista de candidatos aqui, pois ela não muda ao votar.
   }
 
-  Future<void> votar(int candidatoId) async {
-    isLoading = true;
-    notifyListeners();
-    try {
-      await _repository.registrarVoto(eleicao.id!, candidatoId);
-    } finally {
-      isLoading = false;
-      notifyListeners();
-    }
-  }
+  Future<void> finalizar(int eleicaoId) async {
+    final repository = ref.read(eleicaoRepositoryProvider);
+    await repository.finalizarEleicao(eleicaoId);
 
-  Future<void> finalizarVotacao() async {
-    await _repository.finalizarEleicao(eleicao.id!);
+    // Nenhuma invalidação local necessária aqui, pois sairemos da tela.
+    // A invalidação deve ocorrer na tela de listagem de eleições.
   }
 }
