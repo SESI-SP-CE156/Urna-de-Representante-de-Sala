@@ -71,6 +71,13 @@ jobs:
           mkdir -p AppDir/usr/bin
           cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
 
+          # --- CORREÇÃO: Padronizar nome do executável para minúsculo ---
+          # O Flutter gerou 'Urna', mas o linuxdeploy espera 'urna'
+          if [ -f "AppDir/usr/bin/Urna" ]; then
+            mv AppDir/usr/bin/Urna AppDir/usr/bin/urna
+          fi
+          # --------------------------------------------------------------
+
           # 3. Criar arquivo .desktop temporário
           cat > urna.desktop <<EOF
           [Desktop Entry]
@@ -88,7 +95,7 @@ jobs:
             wget -q -O urna.png https://storage.googleapis.com/cms-storage-bucket/0dbfcc7a59cd1cf16282.png
           fi
 
-          # 5. Gerar o AppImage (CORREÇÃO AQUI: --icon-file)
+          # 5. Gerar o AppImage
           ./linuxdeploy-x86_64.AppImage \
             --appdir AppDir \
             --executable AppDir/usr/bin/urna \
