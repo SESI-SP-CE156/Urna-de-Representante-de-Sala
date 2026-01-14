@@ -1,4 +1,4 @@
-name: Urna
+name: urna
 description: "Uma urna de votação para representantes de sala."
 publish_to: "none"
 version: 1.0.0
