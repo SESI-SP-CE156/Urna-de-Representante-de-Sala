@@ -1,14 +1,14 @@
 name: Build & Release
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - dev
-      - main
   pull_request:
+    types: [closed]
     branches:
       - main
-    types: [closed]
 
 permissions:
   contents: write
@@ -41,7 +41,6 @@ jobs:
           cache: true
 
       # --- LINUX DEPENDENCIES ---
-      # Adicionado libfuse2 necessário para rodar AppImages no Ubuntu mais novo
       - name: Install Linux Dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -69,11 +68,10 @@ jobs:
           chmod +x linuxdeploy-x86_64.AppImage
 
           # 2. Preparar Estrutura do AppDir
-          # O Flutter espera que as pastas 'lib' e 'data' estejam junto do executável
           mkdir -p AppDir/usr/bin
           cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
 
-          # 3. Criar arquivo .desktop temporário (metadados do app)
+          # 3. Criar arquivo .desktop temporário
           cat > urna.desktop <<EOF
           [Desktop Entry]
           Name=Urna Eletrônica
@@ -84,21 +82,18 @@ jobs:
           EOF
 
           # 4. Configurar Ícone
-          # Tenta usar o ícone padrão do projeto linux, senão baixa um genérico do Flutter
           if [ -f "linux/runner/resources/application_icon.png" ]; then
             cp linux/runner/resources/application_icon.png urna.png
           else
             wget -q -O urna.png https://storage.googleapis.com/cms-storage-bucket/0dbfcc7a59cd1cf16282.png
           fi
 
-          # 5. Gerar o AppImage
-          # --executable aponta para o binário dentro do AppDir
-          # O linuxdeploy vai buscar as libs necessárias automaticamente
+          # 5. Gerar o AppImage (CORREÇÃO AQUI: --icon-file)
           ./linuxdeploy-x86_64.AppImage \
             --appdir AppDir \
             --executable AppDir/usr/bin/urna \
             --desktop-file urna.desktop \
-            --icon urna.png \
+            --icon-file urna.png \
             --output appimage
 
           # Renomear para o nome esperado no upload
@@ -110,6 +105,38 @@ jobs:
       - name: Build Windows
         if: matrix.os == 'windows-latest'
         run: flutter build windows --release
+
+      - name: Sign Windows Executable
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          # 1. Decodificar o certificado do segredo para um arquivo
+          $pfx_bytes = [System.Convert]::FromBase64String($env:PFX_BASE64)
+          [IO.File]::WriteAllBytes("certificate.pfx", $pfx_bytes)
+
+          # 2. Encontrar o Signtool (geralmente instalado nas images do GitHub Actions)
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+
+          if (-not $signtool) {
+            Write-Error "Signtool not found!"
+            exit 1
+          }
+
+          Write-Host "Using Signtool at: $($signtool.FullName)"
+
+          # 3. Assinar o executável
+          # /tr adiciona um timestamp (importante para a assinatura não expirar junto com o cert)
+          $exePath = "build\windows\x64\runner\Release\urna.exe"
+
+          & $signtool.FullName sign /f "certificate.pfx" /p $env:PFX_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 $exePath
+
+          # Opcional: Assinar também a DLL do app se desejar (flutter_windows.dll já vem assinada pelo Google geralmente)
+
+          Write-Host "Assinatura concluída com sucesso!"
+          Remove-Item "certificate.pfx" # Limpeza
 
       - name: Compress Windows Build
         if: matrix.os == 'windows-latest'
@@ -142,6 +169,5 @@ jobs:
           tag: ${{ steps.tag.outputs.release_tag }}
           name: ${{ steps.tag.outputs.release_name }}
           prerelease: ${{ steps.tag.outputs.is_prerelease }}
-          # Alterado aqui para pegar o .AppImage em vez do .tar.gz
           artifacts: "urna-linux-x64.AppImage,urna-windows-x64.zip"
           token: ${{ secrets.GITHUB_TOKEN }}
