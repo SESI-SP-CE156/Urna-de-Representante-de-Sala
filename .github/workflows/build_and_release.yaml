@@ -1,22 +1,24 @@
 name: Build & Release
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - dev
-      - main
   pull_request:
+    types: [closed]
     branches:
       - main
-    types: [closed]
 
 permissions:
   contents: write
 
 jobs:
+  # ===================================================
+  # JOB 1: BUILD (Roda em paralelo para Linux e Windows)
+  # ===================================================
   build:
     if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
-
     name: Build for ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -40,13 +42,12 @@ jobs:
           channel: "stable"
           cache: true
 
-      # --- LINUX DEPENDENCIES ---
-      # Adicionado libfuse2 necessário para rodar AppImages no Ubuntu mais novo
+      # --- LINUX STEPS ---
       - name: Install Linux Dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsqlite3-dev libfuse2
+          sudo apt-get install -y clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libstdc++-12-dev libsqlite3-dev libfuse2 imagemagick
 
       - name: Install Project Dependencies
         run: flutter pub get
@@ -54,26 +55,25 @@ jobs:
       - name: Run Build Runner
         run: dart run build_runner build --delete-conflicting-outputs
 
-      # ---------------------------------------------------
-      # BUILD LINUX (APPIMAGE)
-      # ---------------------------------------------------
+      # --- BUILD LINUX ---
       - name: Build Linux
         if: matrix.os == 'ubuntu-latest'
         run: flutter build linux --release
 
-      - name: Create AppImage
+      - name: Create AppImage (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          # 1. Baixar ferramentas do LinuxDeploy
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
           chmod +x linuxdeploy-x86_64.AppImage
 
-          # 2. Preparar Estrutura do AppDir
-          # O Flutter espera que as pastas 'lib' e 'data' estejam junto do executável
           mkdir -p AppDir/usr/bin
           cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
 
-          # 3. Criar arquivo .desktop temporário (metadados do app)
+          # Padronizar nome do executável
+          if [ -f "AppDir/usr/bin/Urna" ]; then
+            mv AppDir/usr/bin/Urna AppDir/usr/bin/urna
+          fi
+
           cat > urna.desktop <<EOF
           [Desktop Entry]
           Name=Urna Eletrônica
@@ -83,46 +83,94 @@ jobs:
           Categories=Utility;
           EOF
 
-          # 4. Configurar Ícone
-          # Tenta usar o ícone padrão do projeto linux, senão baixa um genérico do Flutter
           if [ -f "linux/runner/resources/application_icon.png" ]; then
             cp linux/runner/resources/application_icon.png urna.png
           else
             wget -q -O urna.png https://storage.googleapis.com/cms-storage-bucket/0dbfcc7a59cd1cf16282.png
           fi
 
-          # 5. Gerar o AppImage
-          # --executable aponta para o binário dentro do AppDir
-          # O linuxdeploy vai buscar as libs necessárias automaticamente
+          # Redimensionar ícone
+          convert urna.png -resize 256x256! urna.png
+
           ./linuxdeploy-x86_64.AppImage \
             --appdir AppDir \
             --executable AppDir/usr/bin/urna \
             --desktop-file urna.desktop \
-            --icon urna.png \
+            --icon-file urna.png \
             --output appimage
 
-          # Renomear para o nome esperado no upload
           mv Urna_Eletrônica*.AppImage urna-linux-x64.AppImage
 
-      # ---------------------------------------------------
-      # BUILD WINDOWS
-      # ---------------------------------------------------
+      # --- UPLOAD LINUX ARTIFACT ---
+      # Em vez de criar release, salvamos o arquivo para o próximo job
+      - name: Upload Linux Artifact
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: urna-linux-x64.AppImage
+          compression-level: 0 # Já está comprimido
+
+      # --- BUILD WINDOWS ---
       - name: Build Windows
         if: matrix.os == 'windows-latest'
         run: flutter build windows --release
+
+      - name: Sign Windows Executable
+        if: matrix.os == 'windows-latest'
+        shell: powershell
+        env:
+          PFX_BASE64: ${{ secrets.WINDOWS_PFX_BASE64 }}
+          PFX_PASSWORD: ${{ secrets.WINDOWS_PFX_PASSWORD }}
+        run: |
+          $pfx_bytes = [System.Convert]::FromBase64String($env:PFX_BASE64)
+          [IO.File]::WriteAllBytes("certificate.pfx", $pfx_bytes)
+
+          $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+
+          if (-not $signtool) { Write-Error "Signtool not found!"; exit 1 }
+
+          $exePath = "build\windows\x64\runner\Release\urna.exe"
+          & $signtool.FullName sign /f "certificate.pfx" /p $env:PFX_PASSWORD /tr http://timestamp.digicert.com /td sha256 /fd sha256 $exePath
+
+          Remove-Item "certificate.pfx"
 
       - name: Compress Windows Build
         if: matrix.os == 'windows-latest'
         run: |
           Compress-Archive -Path build\windows\x64\runner\Release\* -DestinationPath urna-windows-x64.zip
 
-      # ---------------------------------------------------
-      # RELEASE / UPLOAD
-      # ---------------------------------------------------
-      - name: Set Release Tag
-        id: tag
-        shell: bash
+      # --- UPLOAD WINDOWS ARTIFACT ---
+      - name: Upload Windows Artifact
+        if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: urna-windows-x64.zip
+          compression-level: 0
+
+  # ===================================================
+  # JOB 2: RELEASE (Roda APÓS os builds terminarem)
+  # ===================================================
+  release:
+    needs: build # Aguarda o job 'build' terminar (ambos OS)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 1. Baixa TODOS os artefatos gerados no job anterior
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "*-build" # Baixa linux-build e windows-build
+          merge-multiple: true # Coloca todos os arquivos na raiz da pasta
+
+      # 2. Gera a Descrição e Tag baseada no evento
+      - name: Generate Release Details
+        id: details
         run: |
+          # Define Tag e Nome
           if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             echo "release_tag=v0.1.0-${{ github.run_number }}" >> $GITHUB_OUTPUT
             echo "is_prerelease=false" >> $GITHUB_OUTPUT
@@ -133,15 +181,34 @@ jobs:
             echo "release_name=Development Build ${{ github.run_number }}" >> $GITHUB_OUTPUT
           fi
 
+          # Gera o Corpo da Release (Descrição) em um arquivo
+          echo "### 📦 Detalhes da Versão" > release_body.md
+          echo "" >> release_body.md
+
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            echo "🚀 **Origem: Pull Request #${{ github.event.pull_request.number }}**" >> release_body.md
+            echo "**Título:** ${{ github.event.pull_request.title }}" >> release_body.md
+            echo "" >> release_body.md
+            echo "📝 **Descrição do PR:**" >> release_body.md
+            echo "${{ github.event.pull_request.body }}" >> release_body.md
+          else
+            echo "🛠 **Origem: Commit na Branch ${{ github.ref_name }}**" >> release_body.md
+            echo "**Commit Hash:** ${{ github.sha }}" >> release_body.md
+            echo "" >> release_body.md
+            echo "📝 **Mensagem do Commit:**" >> release_body.md
+            echo "${{ github.event.head_commit.message }}" >> release_body.md
+          fi
+
+      # 3. Publica a Release Única com os arquivos
       - name: Publish Release
         uses: ncipollo/release-action@v1
         with:
           allowUpdates: true
           removeArtifacts: true
           replacesArtifacts: true
-          tag: ${{ steps.tag.outputs.release_tag }}
-          name: ${{ steps.tag.outputs.release_name }}
-          prerelease: ${{ steps.tag.outputs.is_prerelease }}
-          # Alterado aqui para pegar o .AppImage em vez do .tar.gz
+          tag: ${{ steps.details.outputs.release_tag }}
+          name: ${{ steps.details.outputs.release_name }}
+          bodyFile: release_body.md
+          prerelease: ${{ steps.details.outputs.is_prerelease }}
           artifacts: "urna-linux-x64.AppImage,urna-windows-x64.zip"
           token: ${{ secrets.GITHUB_TOKEN }}
