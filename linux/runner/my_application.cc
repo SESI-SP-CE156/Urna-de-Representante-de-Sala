@@ -28,8 +28,8 @@ static void my_application_activate(GApplication* application) {
   // If running on Wayland assume the header bar will work (may need changing
   // if future cases occur).
   GdkGeometry geometry;
-  geometry.min_width = 1280;
-  geometry.min_height = 720;
+  geometry.min_width = 1024;
+  geometry.min_height = 768;
   gtk_window_set_geometry_hints(window, GTK_WIDGET(window), &geometry, GDK_HINT_MIN_SIZE);
 
   gboolean use_header_bar = TRUE;
