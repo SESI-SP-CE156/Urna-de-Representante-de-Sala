@@ -69,6 +69,10 @@ jobs:
           mkdir -p AppDir/usr/bin
           cp -r build/linux/x64/release/bundle/* AppDir/usr/bin/
 
+          # Cria a pasta de libs e copia o sqlite renomeado
+          mkdir -p AppDir/usr/lib
+          cp /usr/lib/x86_64-linux-gnu/libsqlite3.so.0 AppDir/usr/lib/libsqlite3.so
+
           # Padronizar nome do executável
           if [ -f "AppDir/usr/bin/Urna" ]; then
             mv AppDir/usr/bin/Urna AppDir/usr/bin/urna
