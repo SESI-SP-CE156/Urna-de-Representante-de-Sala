@@ -108,7 +108,7 @@ jobs:
             --icon-file urna.png \
             --output appimage
 
-          mv Urna_Eletrônica*.AppImage urna-linux-x64.AppImage
+          mv Urna_Eletrônica*.AppImage urna-v1.0.${{ github.run_number }}-x86_64.AppImage
 
       # --- UPLOAD LINUX ARTIFACT ---
       # Em vez de criar release, salvamos o arquivo para o próximo job
@@ -117,7 +117,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: linux-build
-          path: urna-linux-x64.AppImage
+          path: urna-v1.0.${{ github.run_number }}-x86_64.AppImage
           compression-level: 0 # Já está comprimido
 
       # --- BUILD WINDOWS ---
@@ -146,7 +146,7 @@ jobs:
         run: |
           # Utiliza curinga (*.exe) para capturar o instalador independentemente do nome padrão do inno_bundle
           # e padroniza o nome do arquivo na raiz do repositório
-          Move-Item -Path "build\windows\x64\installer\Release\*.exe" -Destination "sesi_downloader-v1.0.${{ github.run_number }}-windows-x86_64.exe"
+          Move-Item -Path "build\windows\x64\installer\Release\*.exe" -Destination "urna-v1.0.${{ github.run_number }}-windows-x86_64.exe"
 
       - name: Upload Windows Artifact
         if: matrix.os == 'windows-latest'
@@ -154,8 +154,8 @@ jobs:
         with:
           name: windows-build
           path: |
-            sesi_downloader-v1.0.${{ github.run_number }}-windows-x86_64.exe
-            sesi_downloader-v1.0.${{ github.run_number }}-windows-x86_64-portable.zip
+            urna-v1.0.${{ github.run_number }}-windows-x86_64.exe
+            urna-v1.0.${{ github.run_number }}-windows-x86_64.zip
 
   # ===================================================
   # JOB 2: RELEASE (Roda APÓS os builds terminarem)
