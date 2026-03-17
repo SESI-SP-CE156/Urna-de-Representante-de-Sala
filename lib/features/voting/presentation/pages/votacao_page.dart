@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -24,6 +25,9 @@ class _VotacaoPageState extends ConsumerState<VotacaoPage> {
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
+        final player = AudioPlayer();
+        player.setReleaseMode(ReleaseMode.stop);
+        player.play(AssetSource('sounds/urna.mp3'));
         return _FeedbackDialog(
           onNext: () {
             Navigator.of(ctx).pop();
@@ -208,15 +212,15 @@ class _FeedbackDialogState extends State<_FeedbackDialog> {
           ),
         ],
       ),
-      actions: [
-        SizedBox(
-          width: double.infinity,
-          child: ElevatedButton(
-            onPressed: widget.onNext,
-            child: const Text("PROSSEGUIR"),
-          ),
-        ),
-      ],
+      // actions: [
+      //   SizedBox(
+      //     width: double.infinity,
+      //     child: ElevatedButton(
+      //       onPressed: widget.onNext,
+      //       child: const Text("PROSSEGUIR"),
+      //     ),
+      //   ),
+      // ],
     );
   }
 }

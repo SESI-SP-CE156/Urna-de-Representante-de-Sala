@@ -7,6 +7,7 @@ environment:
   sdk: ^3.8.1
 
 dependencies:
+  audioplayers: ^6.6.0
   file_picker: ^10.3.8
   fl_chart: ^0.69.0
   flutter:
@@ -19,6 +20,7 @@ dependencies:
   path: ^1.9.1
   path_provider: ^2.1.5
   riverpod_annotation: ^4.0.0
+  riverpod_lint: ^3.1.0
   sizer: ^3.1.3
   sqflite: ^2.4.2
   sqflite_common_ffi: ^2.3.6
@@ -31,6 +33,20 @@ dev_dependencies:
   flutter_native_splash: ^2.4.7
   riverpod_generator: ^4.0.0+1
   build_runner: ^2.7.1
+  inno_bundle: ^0.11.2
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/sounds/urna.mp3
+
+inno_bundle:
+  id: 689fa280-2201-11f1-a7d9-35c4b690306f # <-- Put your own generated id here
+  publisher: SESI-SP CE 156 # Optional, but recommended.
+  name: SESI Downloader
+  admin: auto
+  arch: x64_compatible
+  updates_url: https://github.com/SESI-SP-CE156/SESI-downloader/releases
+  languages:
+    - english
+    - brazilianportuguese
