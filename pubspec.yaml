@@ -43,10 +43,10 @@ flutter:
 inno_bundle:
   id: 689fa280-2201-11f1-a7d9-35c4b690306f # <-- Put your own generated id here
   publisher: SESI-SP CE 156 # Optional, but recommended.
-  name: SESI Downloader
+  name: Urna
   admin: auto
   arch: x64_compatible
-  updates_url: https://github.com/SESI-SP-CE156/SESI-downloader/releases
+  updates_url: https://github.com/SESI-SP-CE156/Urna-de-Representante-de-Sala/releases
   languages:
     - english
     - brazilianportuguese
