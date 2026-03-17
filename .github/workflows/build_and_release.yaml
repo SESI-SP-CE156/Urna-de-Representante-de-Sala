@@ -218,5 +218,5 @@ jobs:
           name: ${{ steps.details.outputs.release_name }}
           bodyFile: release_body.md
           prerelease: ${{ steps.details.outputs.is_prerelease }}
-          artifacts: "urna-v1.0.${{ github.run_number }}-x86_64.AppImage,urna-v1.0.${{ github.run_number }}-windows-x86_64.zip"
+          artifacts: "urna-v1.0.${{ github.run_number }}-x86_64.AppImage,urna-v1.0.${{ github.run_number }}-windows-x86_64.exe"
           token: ${{ secrets.GITHUB_TOKEN }}
